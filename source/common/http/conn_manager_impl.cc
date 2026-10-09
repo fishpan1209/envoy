@@ -340,6 +340,9 @@ ConnectionManagerImpl::~ConnectionManagerImpl() {
     } else {
       stats_.named_.downstream_cx_http1_active_.dec();
     }
+    if (streams_.empty()) {
+      decIdleConnectionsStat();
+    }
   }
 
   if (soft_drain_http1_) {
@@ -476,6 +479,9 @@ void ConnectionManagerImpl::doDeferredStreamDestroy(ActiveStream& stream) {
   stream.filter_manager_.destroyFilters();
 
   dispatcher_->deferredDelete(stream.removeFromList(streams_));
+  if (streams_.empty()) {
+    incIdleConnectionsStat();
+  }
 
   // The response_encoder should never be dangling (unless we're destroying a
   // stream we are recreating) as the codec level stream will either outlive the
@@ -555,6 +561,9 @@ RequestDecoder& ConnectionManagerImpl::newStream(ResponseEncoder& response_encod
   // Both HTTP/1.x and HTTP/2 codecs handle this in StreamCallbackHelper::addCallbacksHelper.
   ASSERT(read_callbacks_->connection().aboveHighWatermark() == false ||
          new_stream->filter_manager_.aboveHighWatermark());
+  if (streams_.empty()) {
+    decIdleConnectionsStat();
+  }
   LinkedList::moveIntoList(std::move(new_stream), streams_);
   return **streams_.begin();
 }
@@ -598,6 +607,31 @@ void ConnectionManagerImpl::createCodec(Buffer::Instance& data) {
     stats_.named_.downstream_cx_http1_total_.inc();
     stats_.named_.downstream_cx_http1_active_.inc();
     break;
+  }
+  if (streams_.empty()) {
+    incIdleConnectionsStat();
+  }
+}
+
+void ConnectionManagerImpl::incIdleConnectionsStat() {
+  if (!codec_) {
+    return;
+  }
+  if (codec_->protocol() == Protocol::Http2) {
+    stats_.named_.downstream_cx_http2_idle_.inc();
+  } else if (codec_->protocol() == Protocol::Http3) {
+    stats_.named_.downstream_cx_http3_idle_.inc();
+  }
+}
+
+void ConnectionManagerImpl::decIdleConnectionsStat() {
+  if (!codec_) {
+    return;
+  }
+  if (codec_->protocol() == Protocol::Http2) {
+    stats_.named_.downstream_cx_http2_idle_.dec();
+  } else if (codec_->protocol() == Protocol::Http3) {
+    stats_.named_.downstream_cx_http3_idle_.dec();
   }
 }
 

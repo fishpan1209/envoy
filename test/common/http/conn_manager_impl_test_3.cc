@@ -2036,6 +2036,7 @@ TEST_F(HttpConnectionManagerImplTest, NewConnection) {
   EXPECT_EQ(Network::FilterStatus::Continue, conn_manager_->onNewConnection());
   EXPECT_EQ(0U, stats_.named_.downstream_cx_http3_total_.value());
   EXPECT_EQ(0U, stats_.named_.downstream_cx_http3_active_.value());
+  EXPECT_EQ(0U, stats_.named_.downstream_cx_http3_idle_.value());
 
   filter_callbacks_.connection_.stream_info_.protocol_ = Envoy::Http::Protocol::Http3;
   codec_->protocol_ = Http::Protocol::Http3;
@@ -2044,6 +2045,7 @@ TEST_F(HttpConnectionManagerImplTest, NewConnection) {
   EXPECT_EQ(Network::FilterStatus::StopIteration, conn_manager_->onNewConnection());
   EXPECT_EQ(1U, stats_.named_.downstream_cx_http3_total_.value());
   EXPECT_EQ(1U, stats_.named_.downstream_cx_http3_active_.value());
+  EXPECT_EQ(1U, stats_.named_.downstream_cx_http3_idle_.value());
 }
 
 TEST_F(HttpConnectionManagerImplTest, HeaderOnlyRequestAndResponseUsingHttp3) {
@@ -2052,6 +2054,7 @@ TEST_F(HttpConnectionManagerImplTest, HeaderOnlyRequestAndResponseUsingHttp3) {
   filter_callbacks_.connection_.stream_info_.protocol_ = Envoy::Http::Protocol::Http3;
   codec_->protocol_ = Http::Protocol::Http3;
   EXPECT_EQ(Network::FilterStatus::StopIteration, conn_manager_->onNewConnection());
+  EXPECT_EQ(1U, stats_.named_.downstream_cx_http3_idle_.value());
 
   // Store the basic request encoder during filter chain setup.
   std::shared_ptr<MockStreamDecoderFilter> filter(new NiceMock<MockStreamDecoderFilter>());
@@ -2078,6 +2081,7 @@ TEST_F(HttpConnectionManagerImplTest, HeaderOnlyRequestAndResponseUsingHttp3) {
   // Pretend to get a new stream and then fire a headers only request into it. Then we respond into
   // the filter.
   RequestDecoder& decoder = conn_manager_->newStream(response_encoder_);
+  EXPECT_EQ(0U, stats_.named_.downstream_cx_http3_idle_.value());
   RequestHeaderMapPtr headers{
       new TestRequestHeaderMapImpl{{":authority", "host"}, {":path", "/"}, {":method", "GET"}}};
   decoder.decodeHeaders(std::move(headers), true);
@@ -2094,8 +2098,10 @@ TEST_F(HttpConnectionManagerImplTest, HeaderOnlyRequestAndResponseUsingHttp3) {
   filter_callbacks_.connection_.dispatcher_.clearDeferredDeleteList();
   response_encoder_.stream_.codec_callbacks_->onCodecEncodeComplete();
   response_encoder_.stream_.codec_callbacks_ = nullptr;
+  EXPECT_EQ(1U, stats_.named_.downstream_cx_http3_idle_.value());
   conn_manager_.reset();
   EXPECT_EQ(0U, stats_.named_.downstream_cx_http3_active_.value());
+  EXPECT_EQ(0U, stats_.named_.downstream_cx_http3_idle_.value());
 }
 
 namespace {
